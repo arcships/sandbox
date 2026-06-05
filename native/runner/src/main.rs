@@ -153,6 +153,11 @@ async fn run_sandboxed(
         return run_direct(request);
     }
 
+    #[cfg(target_os = "windows")]
+    if is_file_access_off_policy(&request.policy) {
+        return run_direct_with_network_policy(request).await;
+    }
+
     let managed_network = start_managed_network_proxy(&request.policy).await?;
 
     #[cfg(target_os = "windows")]
@@ -242,11 +247,79 @@ fn run_transformed_command(
 }
 
 fn run_direct(request: &NativeRunnerRequest) -> Result<std::process::Output> {
+    run_direct_with_env(request, &request.env)
+}
+
+fn run_direct_with_env(
+    request: &NativeRunnerRequest,
+    env_map: &HashMap<String, String>,
+) -> Result<std::process::Output> {
     let mut command = Command::new(&request.command[0]);
     command.args(request.command.iter().skip(1));
     command.current_dir(&request.cwd);
-    command.envs(&request.env);
+    command.envs(env_map);
     command.output().context("failed to execute command")
+}
+
+#[cfg(target_os = "windows")]
+async fn run_direct_with_network_policy(
+    request: &NativeRunnerRequest,
+) -> Result<std::process::Output> {
+    let managed_network = start_managed_network_proxy(&request.policy).await?;
+    let mut command_env = request.env.clone();
+
+    if let Some(network) = managed_network.as_ref().map(|network| &network.proxy) {
+        network.apply_to_env(&mut command_env);
+    } else if !request
+        .policy
+        .allowed_domains
+        .iter()
+        .any(|domain| domain == "*")
+    {
+        apply_no_network_to_env(&mut command_env)?;
+    }
+
+    run_direct_with_env(request, &command_env)
+}
+
+#[cfg(target_os = "windows")]
+fn apply_no_network_to_env(env_map: &mut HashMap<String, String>) -> Result<()> {
+    env_map.insert("SBX_NONET_ACTIVE".into(), "1".into());
+    env_map
+        .entry("HTTP_PROXY".into())
+        .or_insert_with(|| "http://127.0.0.1:9".into());
+    env_map
+        .entry("HTTPS_PROXY".into())
+        .or_insert_with(|| "http://127.0.0.1:9".into());
+    env_map
+        .entry("ALL_PROXY".into())
+        .or_insert_with(|| "http://127.0.0.1:9".into());
+    env_map
+        .entry("NO_PROXY".into())
+        .or_insert_with(|| "localhost,127.0.0.1,::1".into());
+    env_map
+        .entry("PIP_NO_INDEX".into())
+        .or_insert_with(|| "1".into());
+    env_map
+        .entry("PIP_DISABLE_PIP_VERSION_CHECK".into())
+        .or_insert_with(|| "1".into());
+    env_map
+        .entry("NPM_CONFIG_OFFLINE".into())
+        .or_insert_with(|| "true".into());
+    env_map
+        .entry("CARGO_NET_OFFLINE".into())
+        .or_insert_with(|| "true".into());
+    env_map
+        .entry("GIT_HTTP_PROXY".into())
+        .or_insert_with(|| "http://127.0.0.1:9".into());
+    env_map
+        .entry("GIT_HTTPS_PROXY".into())
+        .or_insert_with(|| "http://127.0.0.1:9".into());
+    env_map
+        .entry("GIT_SSH_COMMAND".into())
+        .or_insert_with(|| "cmd /c exit 1".into());
+    env_map.entry("GIT_ALLOW_PROTOCOLS".into()).or_default();
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -499,8 +572,11 @@ fn network_policy_from_dim_policy(
 }
 
 fn is_full_access_policy(policy: &DimSandboxPolicy) -> bool {
+    is_file_access_off_policy(policy) && policy.allowed_domains.iter().any(|domain| domain == "*")
+}
+
+fn is_file_access_off_policy(policy: &DimSandboxPolicy) -> bool {
     matches!(policy.mode.as_str(), "off" | "danger-full-access")
-        && policy.allowed_domains.iter().any(|domain| domain == "*")
 }
 
 struct StartedManagedNetworkProxy {
