@@ -15,14 +15,14 @@ const conptyPath = join(
   'conpty.rs',
 )
 
-const before = '        self.con.raw_handle()\n'
-const after = '        self.con.raw_handle() as RawHandle\n'
+const beforePattern = /^([ \t]*)self\.con\.raw_handle\(\)(\r?\n)/m
+const afterPattern = /self\.con\.raw_handle\(\) as RawHandle/
 
 const source = readFileSync(conptyPath, 'utf8')
-if (source.includes(after)) {
+if (afterPattern.test(source)) {
   console.log('[codex-patch] Windows ConPTY RawHandle patch already applied')
-} else if (source.includes(before)) {
-  writeFileSync(conptyPath, source.replace(before, after))
+} else if (beforePattern.test(source)) {
+  writeFileSync(conptyPath, source.replace(beforePattern, '$1self.con.raw_handle() as RawHandle$2'))
   console.log('[codex-patch] Applied Windows ConPTY RawHandle compatibility patch')
 } else {
   throw new Error(`Codex ConPTY source did not match expected patch anchor: ${conptyPath}`)
