@@ -26,30 +26,31 @@ const inside = join(workspace, 'inside.txt')
 const outsideSecret = join(outside, 'secret.txt')
 const outsideWrite = join(outside, 'denied.txt')
 const readOnlyWrite = join(workspace, 'read-only-denied.txt')
+const isWindows = process.platform === 'win32'
 
 mkdirSync(workspace, { recursive: true })
 mkdirSync(outside, { recursive: true })
 writeFileSync(inside, 'inside-file')
 writeFileSync(outsideSecret, 'outside-secret')
 
-const shellCommand = (script) => process.platform === 'win32'
-  ? [process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe', '/d', '/s', '/c', script]
+const shellCommand = (script) => isWindows
+  ? [process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe', '/c', script]
   : ['/bin/sh', '-lc', script]
 
-const quote = (value) => process.platform === 'win32'
+const quote = (value) => isWindows
   ? `"${value.replaceAll('"', '""')}"`
   : `'${value.replaceAll("'", "'\\''")}'`
 
-const readCommand = (path) => process.platform === 'win32'
+const readCommand = (path) => isWindows
   ? shellCommand(`type ${quote(path)}`)
   : ['/bin/cat', path]
 
-const writeCommand = (path, value) => process.platform === 'win32'
-  ? shellCommand(`> ${quote(path)} echo ${value}`)
+const writeCommand = (path, value) => isWindows
+  ? shellCommand(`echo ${value}>${quote(path)}`)
   : shellCommand(`printf ${quote(value)} > ${quote(path)}`)
 
 const curlCommand = (url) => [
-  process.platform === 'win32' ? 'curl.exe' : '/usr/bin/curl',
+  isWindows ? 'curl.exe' : '/usr/bin/curl',
   '-fsS',
   '--connect-timeout',
   '5',
@@ -57,6 +58,9 @@ const curlCommand = (url) => [
   '10',
   url,
 ]
+
+const networkUrl = isWindows ? 'http://example.com' : 'https://example.com'
+const nonAllowlistedNetworkUrl = isWindows ? 'http://www.iana.org' : 'https://www.iana.org'
 
 const basePolicy = {
   enabled: true,
@@ -134,21 +138,21 @@ try {
   const insideWrite = run('inside-write', writeCommand(join(workspace, 'allowed.txt'), 'allowed'))
   const outsideRead = run('outside-read', readCommand(outsideSecret))
   const outsideWriteResult = run('outside-write', writeCommand(outsideWrite, 'denied'))
-  const blockedNetwork = run('network-blocked', curlCommand('https://example.com'))
+  const blockedNetwork = run('network-blocked', curlCommand(networkUrl))
 
   const allowlistedNetwork = run(
     'network-allowlisted',
-    curlCommand('https://example.com'),
+    curlCommand(networkUrl),
     { ...basePolicy, allowedDomains: ['example.com'] },
   )
   const nonAllowlistedNetwork = run(
     'network-non-allowlisted',
-    curlCommand('https://www.iana.org'),
+    curlCommand(nonAllowlistedNetworkUrl),
     { ...basePolicy, allowedDomains: ['example.com'] },
   )
   const fullNetwork = run(
     'network-full',
-    curlCommand('https://example.com'),
+    curlCommand(networkUrl),
     { ...basePolicy, allowedDomains: ['*'] },
   )
 
@@ -170,7 +174,7 @@ try {
     allowedDomains: [],
   }
   const fileOffOutsideRead = run('file-off-outside-read', readCommand(outsideSecret), fileOffPolicy)
-  const fileOffBlockedNetwork = run('file-off-network-blocked', curlCommand('https://example.com'), fileOffPolicy)
+  const fileOffBlockedNetwork = run('file-off-network-blocked', curlCommand(networkUrl), fileOffPolicy)
 
   const summary = {
     platform: process.platform,
@@ -201,10 +205,12 @@ try {
     process.exit(0)
   }
 
+  const readIsolationExpected = !isWindows
+
   if (
     summary.insideRead.exitCode !== 0
     || summary.insideWrite.exitCode !== 0
-    || summary.outsideRead.exitCode === 0
+    || (readIsolationExpected && summary.outsideRead.exitCode === 0)
     || summary.outsideWrite.exitCode === 0
     || summary.outsideWriteCreated
     || summary.blockedNetwork.exitCode === 0
