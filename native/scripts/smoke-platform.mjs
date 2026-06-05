@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const args = process.argv.slice(2)
+const allowHostSandboxUnavailable = args.includes('--allow-host-sandbox-unavailable')
 const runnerArg = args.find((arg) => !arg.startsWith('--'))
 const runnerPath = resolve(
   runnerArg
@@ -99,6 +100,35 @@ const detailsFor = (result) => ({
   diagnostics: result.diagnostics,
 })
 
+const hasLinuxHostSandboxSetupError = (result) => {
+  if (process.platform !== 'linux') return false
+  const stderr = String(result.stderr ?? '')
+  return stderr.includes('bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted')
+    || stderr.includes('bwrap: setting up uid map: Permission denied')
+}
+
+const canAcceptLinuxHostSandboxUnavailable = (summary) => {
+  if (!allowHostSandboxUnavailable || process.platform !== 'linux') return false
+  const sandboxedResults = [
+    summary.insideRead,
+    summary.insideWrite,
+    summary.outsideRead,
+    summary.outsideWrite,
+    summary.blockedNetwork,
+    summary.allowlistedNetwork,
+    summary.nonAllowlistedNetwork,
+    summary.fullNetwork,
+    summary.readOnlyRead,
+    summary.readOnlyWrite,
+  ]
+
+  return sandboxedResults.every(hasLinuxHostSandboxSetupError)
+    && summary.fileOffOutsideRead.exitCode === 0
+    && summary.fileOffOutsideRead.stdout === 'outside-secret'
+    && summary.outsideWriteCreated === false
+    && summary.readOnlyWriteCreated === false
+}
+
 try {
   const insideRead = run('inside-read', readCommand(inside))
   const insideWrite = run('inside-write', writeCommand(join(workspace, 'allowed.txt'), 'allowed'))
@@ -162,6 +192,14 @@ try {
     fileOffBlockedNetwork: detailsFor(fileOffBlockedNetwork),
   }
   console.log(JSON.stringify(summary, null, 2))
+
+  if (canAcceptLinuxHostSandboxUnavailable(summary)) {
+    console.warn(
+      '[native-smoke] Linux host does not allow bwrap/user namespace setup; '
+        + 'accepted because --allow-host-sandbox-unavailable was set.',
+    )
+    process.exit(0)
+  }
 
   if (
     summary.insideRead.exitCode !== 0

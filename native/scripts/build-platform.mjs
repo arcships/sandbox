@@ -75,6 +75,10 @@ const copyArtifact = (source, targetPath) => {
   console.log(`[native-build] target ${targetPath}`)
 }
 
+if (platform === 'win32') {
+  run('node', [join(nativeRoot, 'scripts', 'patch-codex-submodule.mjs')])
+}
+
 if (commandSucceeds('rustup', ['--version'])) {
   run('rustup', ['target', 'add', target])
 } else {
