@@ -1,0 +1,34 @@
+[workspace]
+members = ["runner"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+version = "0.0.1"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "sync"] }
+
+# Codex-derived sandbox crates.
+#
+# Keep the `third_party/openai-codex` submodule pinned. When updating it, run
+# the dim-sandbox conformance suite plus platform-specific native runner tests.
+codex-protocol = { path = "../third_party/openai-codex/codex-rs/protocol" }
+codex-network-proxy = { path = "../third_party/openai-codex/codex-rs/network-proxy" }
+codex-sandboxing = { path = "../third_party/openai-codex/codex-rs/sandboxing" }
+codex-utils-absolute-path = { path = "../third_party/openai-codex/codex-rs/utils/absolute-path" }
+codex-windows-sandbox = { path = "../third_party/openai-codex/codex-rs/windows-sandbox-rs" }
+
+[patch.crates-io]
+# Keep these in sync with `third_party/openai-codex/codex-rs/Cargo.toml`.
+# Codex enables the `proxy` feature on tungstenite crates from OpenAI forks.
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+
+[patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }

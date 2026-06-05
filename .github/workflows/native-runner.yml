@@ -1,0 +1,125 @@
+name: Native Sandbox Runner
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: darwin-arm64
+            os: macos-14
+            platform: darwin
+            arch: arm64
+            archive: tar
+          - name: darwin-x64
+            os: macos-13
+            platform: darwin
+            arch: x64
+            archive: tar
+          - name: linux-x64
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            archive: tar
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            archive: tar
+          - name: windows-x64
+            os: windows-2022
+            platform: win32
+            arch: x64
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux sandbox helper dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+
+      - name: Check Rust workspace
+        run: cargo check --manifest-path native/Cargo.toml --workspace
+
+      - name: Build native payload
+        run: node native/scripts/build-platform.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Verify protocol compatibility
+        run: node native/scripts/protocol-compat.mjs
+
+      - name: Smoke test native payload
+        run: node native/scripts/smoke-platform.mjs
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${{ matrix.name }}/runtime/sandbox"
+          cp -R native/target/release/. "dist/${{ matrix.name }}/runtime/sandbox/"
+          find "dist/${{ matrix.name }}/runtime/sandbox" -type f -print
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            (cd dist && 7z a "dim-sandbox-runner-${{ matrix.name }}.zip" "${{ matrix.name }}")
+          else
+            (cd dist && tar -czf "dim-sandbox-runner-${{ matrix.name }}.tar.gz" "${{ matrix.name }}")
+          fi
+
+      - name: Upload native payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: dim-sandbox-runner-${{ matrix.name }}
+          path: |
+            dist/dim-sandbox-runner-${{ matrix.name }}.tar.gz
+            dist/dim-sandbox-runner-${{ matrix.name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/dim-sandbox-runner-*.tar.gz
+            dist/**/dim-sandbox-runner-*.zip
+            SHA256SUMS

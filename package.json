@@ -1,0 +1,19 @@
+{
+  "name": "@arcships/sandbox-runner-workspace",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "native:check": "cd native && cargo check --workspace",
+    "native:build": "node native/scripts/build-platform.mjs",
+    "native:build:platform": "node native/scripts/build-platform.mjs",
+    "native:protocol": "node native/scripts/protocol-compat.mjs",
+    "native:smoke": "node native/scripts/smoke-platform.mjs",
+    "native:smoke:macos": "node native/scripts/smoke-macos.mjs",
+    "native:smoke:wsl": "powershell -ExecutionPolicy Bypass -File native/scripts/smoke-wsl.ps1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+
