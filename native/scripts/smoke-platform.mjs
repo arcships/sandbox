@@ -37,16 +37,35 @@ const shellCommand = (script) => isWindows
   ? [process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe', '/c', script]
   : ['/bin/sh', '-lc', script]
 
+const powerShellCommand = (script) => [
+  join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  ),
+  '-NoLogo',
+  '-NoProfile',
+  '-NonInteractive',
+  '-ExecutionPolicy',
+  'Bypass',
+  '-Command',
+  script,
+]
+
 const quote = (value) => isWindows
   ? `"${value.replaceAll('"', '""')}"`
   : `'${value.replaceAll("'", "'\\''")}'`
 
+const psQuote = (value) => `'${value.replaceAll("'", "''")}'`
+
 const readCommand = (path) => isWindows
-  ? shellCommand(`type ${quote(path)}`)
+  ? powerShellCommand(`Get-Content -Raw -LiteralPath ${psQuote(path)}`)
   : ['/bin/cat', path]
 
 const writeCommand = (path, value) => isWindows
-  ? shellCommand(`echo ${value}>${quote(path)}`)
+  ? powerShellCommand(`Set-Content -NoNewline -LiteralPath ${psQuote(path)} -Value ${psQuote(value)}`)
   : shellCommand(`printf ${quote(value)} > ${quote(path)}`)
 
 const curlCommand = (url) => [
