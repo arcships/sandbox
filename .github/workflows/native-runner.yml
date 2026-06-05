@@ -91,9 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dim-sandbox-runner-${{ matrix.name }}
-          path: |
-            dist/dim-sandbox-runner-${{ matrix.name }}.tar.gz
-            dist/dim-sandbox-runner-${{ matrix.name }}.zip
+          path: dist/dim-sandbox-runner-${{ matrix.name }}.*
           if-no-files-found: error
 
   release:
