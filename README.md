@@ -65,19 +65,9 @@ Five platform payloads are published in **v0.1.5**. WSL2 uses the Linux backend;
 
 ## How It Works
 
-```mermaid
-flowchart LR
-    app["Your application"] -->|"JSON request + EOF"| runner["dim-sandbox-runner"]
-    runner --> backend["Platform sandbox"]
-    backend --> command["Command + child processes"]
-    runner -->|"JSON result"| app
-    classDef host fill:#eaf2f8,stroke:#63839b,color:#203c52
-    classDef runnerNode fill:#e6f5ee,stroke:#439480,color:#1c5446
-    classDef child fill:#f2effa,stroke:#8e7eaf,color:#4a3b68
-    class app host
-    class runner runnerNode
-    class backend,command child
-```
+<p align="center">
+  <img src="docs/assets/execution-flow.svg" alt="Your application sends JSON plus EOF to dim-sandbox-runner. The platform backend launches the restricted command and its children. The runner returns a JSON result to your application." width="100%" />
+</p>
 
 The application chooses a trusted policy; the runner maps it to pinned native sandbox components. Only commands launched through the runner receive its restrictions. Direct file/network calls in your application need their own permission checks, and allowed writes modify real local files.
 
