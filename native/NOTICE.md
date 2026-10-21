@@ -9,5 +9,6 @@ Upstream:
 - Pinned revision: `c83ba22359f4140e44fc43500d2bedbb882d7211`
 - License: Apache-2.0
 
-The Dim-facing protocol, policy mapping, packaging, and Node adapter are owned by `dim-sandbox`.
-Codex crate APIs are kept behind the native runner boundary and should not leak into `@archships/dim-sandbox-core` or `@archships/dim-sandbox-node`.
+This repository owns the runner's JSON protocol, policy mapping, and native payload packaging.
+Application adapters are separate consumers of that protocol; this repository does not include the Dim Agent TypeScript packages.
+Codex crate APIs remain behind the native runner process boundary.

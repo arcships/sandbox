@@ -1,53 +1,64 @@
-# dim-sandbox native runner
+# Native Runner Development
 
-This workspace contains the native process isolation runner used by `@archships/dim-sandbox-node`.
+For standalone usage and application integration, start with the [usage guide](../docs/usage.md) and [protocol reference](../docs/protocol.md). This directory builds the native binary and platform helpers; application adapters live outside this repository.
 
-The runner intentionally exposes Dim's own JSON protocol instead of Codex internals:
+## Prerequisites
 
-```text
-@archships/dim-sandbox-node
-  -> NativeRunnerRequest
-  -> dim-sandbox-runner
-  -> Codex-derived platform backend
-```
+- Git, including the initialized `third_party/openai-codex` submodule.
+- Node.js 20+ for build and verification scripts; CI uses Node.js 22.
+- Rust/Cargo and a native C/C++ linker; CI installs the stable toolchain.
+- macOS: Xcode Command Line Tools.
+- Linux: bubblewrap, C/C++ build tools, pkg-config, OpenSSL development headers, and Perl. CI builds on Ubuntu 24.04 using GNU targets.
+- Windows: Visual Studio Build Tools with the MSVC C++ toolchain and Windows SDK.
+- pnpm for the command aliases below; scripts can also be invoked directly with Node.js. There are no npm dependencies to install.
 
-Current integration points:
+## Build
 
-- macOS: Codex `codex-sandboxing` Seatbelt transform.
-- Linux: Codex `codex-sandboxing` transform plus the `codex-linux-sandbox` helper.
-- Windows: Codex `codex-windows-sandbox` legacy/elevated backend hook point.
-
-Codex is checked in as the `third_party/openai-codex` git submodule. Run this after cloning:
+Run from the repository root:
 
 ```bash
 git submodule update --init --recursive
-```
-
-Build:
-
-```bash
+node native/scripts/patch-codex-submodule.mjs
 pnpm native:check
 pnpm native:build
-pnpm sandbox:native:protocol
-pnpm sandbox:native:smoke
-pnpm sandbox:native:smoke:macos
+pnpm native:protocol
+pnpm native:smoke
 ```
 
-Prerequisite: install the Rust toolchain so `cargo` is available.
+The ConPTY compatibility patch is idempotent and is needed before checking Windows source. The Windows build script also applies it automatically. It modifies the pinned submodule worktree, not its recorded commit.
 
-Build an explicit platform/architecture artifact:
+The output directory is `native/target/release/`, including required helpers. Explicit platform/architecture builds use these commands on their respective operating systems:
 
 ```bash
-pnpm sandbox:native:build:platform -- --platform darwin --arch arm64
-pnpm sandbox:native:build:platform -- --platform darwin --arch x64
-pnpm sandbox:native:build:platform -- --platform linux --arch x64
-pnpm sandbox:native:build:platform -- --platform win32 --arch x64
+pnpm native:build:platform -- --platform darwin --arch arm64
+pnpm native:build:platform -- --platform darwin --arch x64
+pnpm native:build:platform -- --platform linux --arch arm64
+pnpm native:build:platform -- --platform linux --arch x64
+pnpm native:build:platform -- --platform win32 --arch x64
 ```
 
-The build script never cross-builds across operating systems. It always passes an explicit Rust target triple, so a host-architecture binary cannot be mislabeled as an Intel/ARM package. Linux builds also stage `codex-linux-sandbox` and a validated `bwrap` resource. Windows builds stage `codex-command-runner.exe` and `codex-windows-sandbox-setup.exe`.
+The script passes an explicit Rust target triple and rejects cross-OS builds. Windows ARM64 has a target mapping but no CI/release coverage. Linux builds copy the installed `bwrap` into `codex-resources/bwrap`; copying it does not remove its dynamic library requirements. Keep the complete payload layout described in the [root README](../README.md#artifact-contract).
 
-`native/Cargo.lock` is committed on purpose because this workspace builds a binary and needs to keep transitive Codex dependency versions reproducible. Keep the tungstenite patches in `native/Cargo.toml` aligned with `third_party/openai-codex/codex-rs/Cargo.toml`.
+## Verify
 
-The Desktop release pipeline packages the Linux and Windows helpers next to `dim-sandbox-runner`. The runtime manifest records the host protocol version and a SHA-256 digest for every required binary. `pnpm --dir packages/desktop verify:runtime:sandbox:compat` executes the staged runner protocol handshake and rejects incompatible or incomplete update payloads.
+| Command | Coverage |
+| --- | --- |
+| `pnpm native:protocol` | Protocol v1 execution and unsupported-version rejection; sandbox disabled |
+| `pnpm native:smoke` | Platform read/write/network checks; Windows omits read-isolation assertions |
+| `pnpm native:smoke:macos` | Additional macOS policy combinations and system temp write denial |
+| `pnpm native:smoke:wsl` | Invokes Linux build/protocol/smoke inside the selected WSL distribution; requires WSL2 |
 
-The macOS smoke test verifies workspace writes, sibling-directory write denial, explicit secret read denial, system temporary-directory write denial, blocked network access, domain allowlist access through the managed proxy, non-allowlisted domain denial, and full network access.
+Network smoke checks need curl and reachable `example.com` / `www.iana.org` for allowed-network cases. Protocol checks do not need external network access. Test an extracted payload directly with:
+
+```bash
+node native/scripts/protocol-compat.mjs /absolute/path/runtime/sandbox/dim-sandbox-runner
+node native/scripts/smoke-platform.mjs /absolute/path/runtime/sandbox/dim-sandbox-runner
+```
+
+Use `.exe` on Windows. Linux hosted CI adds `--allow-host-sandbox-unavailable` to accept specified namespace setup failures. Deployment verification should use the strict invocation above. Current platform and lifecycle limitations are maintained in the [protocol reference](../docs/protocol.md#platform-and-runtime-limitations).
+
+## Dependencies and Releases
+
+`native/Cargo.lock` is committed because this workspace produces a binary. Keep tungstenite patches in `native/Cargo.toml` aligned with the pinned Codex workspace. Review the ConPTY compatibility patch when updating the submodule.
+
+GitHub Actions builds five platform payloads. A `v*` tag publishes `.tar.gz`/`.zip` archives and `SHA256SUMS`. Each archive starts with `<platform>/runtime/sandbox/`. The workflow does not perform code signing or notarization.

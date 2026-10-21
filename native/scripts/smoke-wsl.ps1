@@ -41,9 +41,9 @@ command -v node >/dev/null
 command -v pnpm >/dev/null
 command -v cargo >/dev/null
 command -v bwrap >/dev/null
-pnpm sandbox:native:build:platform -- --platform linux --arch x64
-pnpm sandbox:native:protocol
-pnpm sandbox:native:smoke
+pnpm native:build
+pnpm native:protocol
+pnpm native:smoke
 "@
 
 Invoke-Wsl -Command $command
