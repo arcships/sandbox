@@ -1,72 +1,108 @@
-# Arcships Sandbox Runner
+<p align="center">
+  <img src="docs/assets/readme-hero.svg" alt="Arcships Sandbox Runner — local commands with explicit permissions" width="100%" />
+</p>
 
-`dim-sandbox-runner` executes a command on the local machine with filesystem and network permissions enforced by a platform backend. It uses pinned components from the `third_party/openai-codex` submodule.
+<p align="center">
+  <a href="https://github.com/arcships/sandbox/actions/workflows/native-runner.yml"><img src="https://github.com/arcships/sandbox/actions/workflows/native-runner.yml/badge.svg?branch=main" alt="Native runner CI" /></a>
+  <a href="https://github.com/arcships/sandbox/releases/tag/v0.1.5"><img src="https://img.shields.io/badge/release-v0.1.5-3b8075?style=flat-square" alt="Release v0.1.5" /></a>
+  <a href="docs/protocol.md"><img src="https://img.shields.io/badge/protocol-JSON_v1-46677f?style=flat-square" alt="JSON protocol v1" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-64748b?style=flat-square" alt="Apache 2.0 license" /></a>
+</p>
 
-Any application can invoke the standalone binary using the [JSON protocol](docs/protocol.md). Running it does not require Dim Agent, Codex CLI, Node.js, or Rust. Node.js is needed for this repository's examples and verification scripts; Rust is needed to build from source.
+<p align="center">
+  <strong>Native local execution. Filesystem and network policies. A small JSON interface.</strong>
+</p>
 
-This repository owns the native runner, policy mapping, build scripts, and release artifacts. Application SDKs, Agent tool adapters, and approval UI belong to the consuming application.
+<p align="center">
+  <a href="#quick-start">Quick start</a> &nbsp; · &nbsp;
+  <a href="docs/usage.md">中文接入指南</a> &nbsp; · &nbsp;
+  <a href="docs/protocol.md">Protocol</a> &nbsp; · &nbsp;
+  <a href="https://github.com/arcships/sandbox/releases">Downloads</a>
+</p>
 
-- [使用与接入指南（中文）](docs/usage.md): download, runnable examples, integration diagrams, and isolation boundaries.
-- [Protocol reference](docs/protocol.md): request fields, permissions, results, and current limitations.
-- [Native development](native/README.md): source builds and platform verification.
+---
 
-## How It Fits Into an Application
+`dim-sandbox-runner` runs commands on your machine under platform-specific filesystem and network restrictions. Send a JSON request over stdin; receive a JSON result on stdout.
 
-```mermaid
-flowchart LR
-    app["Your application's command tool"] -->|"JSON request on stdin + EOF"| runner["dim-sandbox-runner"]
-    runner --> backend["Platform sandbox backend"]
-    backend --> command["Command and its child processes"]
-    runner -->|"JSON result on stdout"| app
-```
+| Native execution | Explicit permissions | Language independent |
+| :--- | :--- | :--- |
+| macOS Seatbelt, Linux bubblewrap + seccomp, and Windows restricted token. | Choose readable and writable roots, deny paths, and allowed domains. | Invoke the standalone binary from any application that can start a process. |
 
-Only commands launched through the runner receive its restrictions. The application chooses the policy and handles its own direct file/network tools. Allowed writes modify real local files.
-
-## Published Platforms
-
-| Release platform | Architecture | Backend | Important boundary |
-| --- | --- | --- | --- |
-| `darwin-arm64` | Apple Silicon | macOS Seatbelt | Filesystem restrictions and managed network proxy |
-| `darwin-x64` | Intel | macOS Seatbelt | Same backend as ARM64 |
-| `linux-arm64` | ARM64 | bubblewrap + seccomp | Requires usable user namespaces; GNU Linux build |
-| `linux-x64` | x86-64 | bubblewrap + seccomp | Same backend as ARM64 |
-| `windows-x64` | x86-64 | Windows restricted token | Read restrictions are not preserved by the legacy policy conversion |
-
-These five payloads are published in [v0.1.5](https://github.com/arcships/sandbox/releases/tag/v0.1.5). Windows ARM64 has a build target mapping but no published payload. WSL2 uses the Linux backend; WSL1 cannot provide its required namespaces. See [platform limitations](docs/protocol.md#platform-and-runtime-limitations) before selecting policies.
+The binary runs independently of Dim Agent or Codex CLI. Node.js is used by the examples and verification scripts; Rust is needed when building from source. See [platform limitations](docs/protocol.md#platform-and-runtime-limitations) for differences in enforcement.
 
 ## Quick Start
 
-Download and extract the matching release archive. Preserve the complete `<platform>/runtime/sandbox/` directory, including platform helpers. See the [download instructions](docs/usage.md#1-获取-runner).
+**1. Get the payload.** Download the matching archive from [Releases](https://github.com/arcships/sandbox/releases/tag/v0.1.5), verify its checksum, and extract it. Preserve the complete `<platform>/runtime/sandbox/` directory. [Download instructions →](docs/usage.md#1-获取-runner)
 
-The dependency-free Node.js example creates a protocol request, closes stdin, reads the result, and propagates the command's exit code. From a checkout of this repository, on macOS/Linux:
+**2. Run a command.** From a checkout of this repository, with Node.js 20+ installed:
 
 ```bash
 mkdir -p demo-workspace
-node examples/run-command.mjs ./darwin-arm64/runtime/sandbox/dim-sandbox-runner ./demo-workspace /bin/sh -c 'printf sandbox-ok > result.txt'
+
+# macOS Apple Silicon; substitute your extracted platform path.
+node examples/run-command.mjs \
+  ./darwin-arm64/runtime/sandbox/dim-sandbox-runner \
+  ./demo-workspace \
+  /bin/sh -c 'printf sandbox-ok > result.txt'
 ```
 
-Use your extracted platform path. This example enables `workspace-write`, blocks network access, and explicitly denies `.env` reads. It accepts the command as an argv array. Windows invocation and raw JSON usage are in the [usage guide](docs/usage.md#2-执行第一个隔离命令).
+**3. Inspect the result.** An `exitCode` of `0` and `demo-workspace/result.txt` containing `sandbox-ok` confirm this command completed. The example requests workspace writes, `.env` read denials, and blocked network access.
 
-## Layout
+The [dependency-free example](examples/run-command.mjs) handles stdin EOF, response validation, exit-code propagation, and a host watchdog. For Windows commands, raw JSON requests, and actual isolation checks, follow the [usage guide](docs/usage.md#2-执行第一个隔离命令).
 
-```text
-docs/                     # standalone usage and protocol reference
-examples/                 # standalone Node.js protocol client
-native/
-  Cargo.toml
-  runner/                 # dim-sandbox-runner
-  scripts/                # build and smoke verification scripts
-third_party/openai-codex  # pinned git submodule
+## Published Platforms
+
+| Platform | Release payloads | Backend | Deployment note |
+| :--- | :--- | :--- | :--- |
+| **macOS** | `darwin-arm64` · `darwin-x64` | Seatbelt | Filesystem restrictions and managed network proxy |
+| **Linux** | `linux-arm64` · `linux-x64` | bubblewrap + seccomp | GNU Linux builds; requires usable user namespaces |
+| **Windows** | `windows-x64` | Restricted token | Legacy conversion does not preserve read restrictions |
+
+Five platform payloads are published in **v0.1.5**. WSL2 uses the Linux backend; WSL1 lacks the required namespaces. Windows ARM64 has a build target mapping but no published payload.
+
+> [!IMPORTANT]
+> Isolation guarantees vary by platform. Windows read restrictions and its file-mode-off network path have limitations. Host applications also own timeouts and resource controls. Read the [current implementation boundaries](docs/protocol.md#platform-and-runtime-limitations) before deployment.
+
+## How It Works
+
+```mermaid
+flowchart LR
+    app["Your application"] -->|"JSON request + EOF"| runner["dim-sandbox-runner"]
+    runner --> backend["Platform sandbox"]
+    backend --> command["Command + child processes"]
+    runner -->|"JSON result"| app
+    classDef host fill:#eaf2f8,stroke:#63839b,color:#203c52
+    classDef runnerNode fill:#e6f5ee,stroke:#439480,color:#1c5446
+    classDef child fill:#f2effa,stroke:#8e7eaf,color:#4a3b68
+    class app host
+    class runner runnerNode
+    class backend,command child
 ```
 
-## Build From Source
+The application chooses a trusted policy; the runner maps it to pinned native sandbox components. Only commands launched through the runner receive its restrictions. Direct file/network calls in your application need their own permission checks, and allowed writes modify real local files.
 
-Install Git, Node.js 20+, Rust/Cargo, and your platform's native build tools. Linux also needs bubblewrap. See [platform prerequisites](native/README.md#prerequisites).
+[Process boundaries and request sequence →](docs/usage.md#4-接入后的进程与权限范围)
+
+## Documentation
+
+| Start here | What you will find |
+| :--- | :--- |
+| [使用与接入指南（中文）](docs/usage.md) | Download, runnable examples, permission settings, and integration diagrams |
+| [JSON protocol v1](docs/protocol.md) | Request/response fields, failure handling, and platform limitations |
+| [Native development](native/README.md) | Build prerequisites, target selection, and verification commands |
+| [Standalone Node.js example](examples/run-command.mjs) | A small process-protocol client using only Node.js standard libraries |
+
+## Development
+
+<details>
+<summary><strong>Build and verify from source</strong></summary>
+
+Install Git, Node.js 20+, Rust/Cargo, pnpm, and your platform's native build tools. Linux also needs bubblewrap. See [platform prerequisites](native/README.md#prerequisites).
 
 ```bash
-git clone https://github.com/arcships/sandbox.git
+git clone --recurse-submodules https://github.com/arcships/sandbox.git
 cd sandbox
-git submodule update --init --recursive
+
 node native/scripts/patch-codex-submodule.mjs
 pnpm native:check
 pnpm native:build
@@ -74,26 +110,40 @@ pnpm native:protocol
 pnpm native:smoke
 ```
 
-The build script is intentionally OS-native:
+Build on the target operating system. The staged payload is written to `native/target/release/`. See the [native guide](native/README.md) for architecture selection and platform test coverage. Build outputs do not imply code signing or notarization.
 
-- macOS builds macOS payloads.
-- Linux builds Linux payloads.
-- Windows builds Windows payloads.
+</details>
 
-The staged payload is written to `native/target/release/`. Build outputs do not imply code signing or notarization.
+<details>
+<summary><strong>Explore the repository</strong></summary>
+
+```text
+docs/                     Usage, protocol, and diagrams
+examples/                 Standalone process client
+native/runner/            Rust runner and policy mapping
+native/scripts/           Builds and smoke checks
+third_party/openai-codex  Pinned platform components
+```
+
+This repository owns the native runner, protocol, policy mapping, and release artifacts. Application SDKs, Agent tool adapters, and approval UI belong to the consuming application.
+
+</details>
 
 ## Artifact Contract
 
-Release archives contain a platform directory such as `darwin-arm64/`, with the complete runtime payload beneath it:
+Keep the complete payload together when packaging it with your application:
 
 ```text
 <platform>/runtime/sandbox/
-  dim-sandbox-runner[.exe]
-  codex-linux-sandbox              # Linux only
-  codex-resources/bwrap            # Linux only
-  codex-command-runner.exe         # Windows only
-  codex-windows-sandbox-setup.exe  # Windows only
+├── dim-sandbox-runner[.exe]
+├── codex-linux-sandbox              # Linux
+├── codex-resources/bwrap            # Linux
+├── codex-command-runner.exe         # Windows
+└── codex-windows-sandbox-setup.exe   # Windows
 ```
 
-Keep helpers beside the runner at these relative paths. macOS/Linux use `.tar.gz` archives; Windows uses `.zip`. Releases also include archive checksums in `SHA256SUMS`.
+macOS/Linux archives use `.tar.gz`; Windows uses `.zip`. Platform helpers must retain these relative paths. Releases include archive checksums in `SHA256SUMS`.
 
+---
+
+Licensed under [Apache 2.0](LICENSE). Native sandbox components come from [OpenAI Codex](https://github.com/openai/codex), pinned as a submodule. See [upstream attribution](native/NOTICE.md).
